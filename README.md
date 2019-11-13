@@ -17,10 +17,30 @@ rclonesync has not been
 tested on other services.  If it works, or sorta works, please raise an issue and I'll update these notes.  Run the test suite
 to check for proper operation.
 
+## Installation, setup, getting started
+- Install [rclone](https://rclone.org/) and setup your remotes.  Ensure the location is included in your executables search path (PATH environment variable), else see rclonesync's `--rclone` switch.
+- Place the rclonesync.py script on your system.  Place it in a directory within your PATH environment variable, or run it with a full path reference.  On Linux, make sure the file mode is set to executable (`chmod +x rclonesync.py`).  On Windows and if using Python 2.7, read about the `win_subprocess.py` and `win32_unicode_argv.py` modules below in the Windows support section.  Place these two modules in the same directory as the rclonesync.py script. 
+- Create the rclonesync working directory at `~/.rclonesyncwd` (Linux) or `C:\Users\<your loginname>\.rclonesyncwd` (Windows),  Set up a filters file in this directory, if needed.
+- Run rclonesync with the `--first-sync` switch, specifying the paths to the local and remote sync directory roots.
+- For successive sync runs, leave off the `--first-sync` switch.
+- Consider setting up the --check-access feature for safety, and the `--filters-file` feature for excluding unnecessary files and directories from the sync.
+- On Linux, consider setting up a crontab entry.  The following runs a sync every 5 minutes between a local directory and an OwnCloud server, with output logged to a runlog file:
+```
+# Minute (0-59)
+#      Hour (0-23)
+#           Day of Month (1-31)
+#                Month (1-12 or Jan-Dec)
+#                     Day of Week (0-6 or Sun-Sat)
+#                         Command
+  */5  *    *    *    *   ~/scripts/rclonesync.py /mnt/share/myoc owncloud: --check-access --filters-file ~/.rclonesyncwd/Filters  >> ~/scripts/owncloud_runlog 2>&1
+
+```
+
 ## Notable changes in the latest release
-V2.7 190429:
-- Changed the lock filename to include the Path1 and Path2 terms.  This effectively allows concurrent / parallel rclonesync runs on non-overlapping file systems / clouds.  **NOTE** that concurrent rclonesync runs are allowed, **but** be very cautious that there is no overlap in the paths. 
-- Added rclone sync exit codes - 0: Pass, 1: Error abort, 2: Critical error abort.
+V2.9 191103:
+- Added extended character support for all fields on the command line - issue #35.  For example:  `rclonesync.py /home/<me>/測試_Русский_ě_áñ GDrive:測試_Русский_ě_áñ`.
+- NOTE:   As of V2.9, it is required that the Windows CMD shell be properly configured for Unicode support, even if you only use ASCII.  Execute both `chcp 65001` and `set PYTHONIOENCODING=UTF-8` in the command shell before attempting to run rclonesync.  If these are not set properly rclonesync will post an error and exit.
+- Tested in Windows 10 with Python 3.8.
 
 
 ## High level behaviors / operations
@@ -98,7 +118,7 @@ optional arguments:
 
 Typical run log:
 ```
-$ ../rclonesync.py ./testdir/path1/ GDrive:testdir/path2/ --verbose
+$ ./rclonesync.py ./testdir/path1/ GDrive:testdir/path2/ --verbose
 2018-07-28 17:13:25,912:  ***** BiDirectional Sync for Cloud Services using rclone *****
 2018-07-28 17:13:25,913:  Synching Path1  <./testdir/path1/>  with Path2  <GDrive:/testdir/path2/>
 2018-07-28 17:13:25,913:  Command line:  <Namespace(Path1='./testdir/path1/', Path2='GDrive:testdir/path2/', check_access=False, dry_run=False, filters_file=None, first_sync=False, force=False, max_deletes=50, no_datetime_log=False, rc_verbose=None, verbose=True, workdir='./testwd/')>
@@ -224,7 +244,7 @@ which leads to the attempted delete on the Path2, blocked again by --dry-run: `.
 artifact of the `--dry-run` switch.  Scrutinize the proposed deletes carefully, and if the files would have been copied to Path1 then 
 the threatened deletes on Path2 may be disregarded.
 
-- **Lock file** - When rclonesync is running, a lock file is created (/tmp/rclonesync_LOCK_path1_path2).  If rclonesync should crash or 
+- **Lock file** - When rclonesync is running, a lock file is created (typically on Linux at /tmp/rclonesync_LOCK_path1_path2).  If rclonesync should crash or 
 hang the lock file will remain in place and block any further runs of rclonesync _for the same paths_.  Delete the lock file as part of 
 debugging the situation.  The lock file effectively blocks follow-on (i.e., CRON scheduled) runs when the prior invocation 
 is taking a long time.  The lock file contains the job command line and time, which may help in debug.  If rclonesync crashes with a Python
@@ -240,17 +260,18 @@ mechanism is hard-coded to ignore RCLONE_TEST files beneath RCloneSync/Test.
 
 ### Windows support
 Support for rclonesync on Windows was added in V2.3.  
-- Tested on Windows 10 Pro version 1809 (Oct'18) and with rclone v1.46 release.
+- Tested on Windows 10 Pro version 1903 (May'19) and with rclone v1.46 release, and both Python 2.7.17 and 3.8.0.
+- **NOTE:   As of V2.9, it is required that the Windows CMD shell be properly configured for Unicode support, even if you only use ASCII.  Execute both `chcp 65001` and `set PYTHONIOENCODING=UTF-8` in the command shell before attempting to run rclonesync.  If these are not set properly rclonesync will post an error and exit.**
 - Drive letters are allowed, including drive letters mapped to network drives (`rclonesync.py J:\localsync GDrive:`). 
 If a drive letter is omitted the shell current drive is the default.  Drive letters are a single character follows by ':', so cloud names
 must be more than one character long.
 - Absolute paths (with or without a drive letter), and relative paths (with or without a drive letter) are supported.
-- `C:\tmp` must be manually created, and the user must have write privilege to this directory.  The LOCK file is placed here.
 - rclonesync's working directory is created at the user's top level (`C:\Users\<user>\.rclonesyncwd`).
 - rclone must be in the path, or use rclonesync's `--rclone` switch.
 - Note that rclonesync output will show a mix of forward `/` and back '\' slashes.  They are equivalent in Python - not to worry.
 - Be careful of case independent directory and file naming on Windows vs. case dependent Linux!
-- If using Windows and Python 2.7 and the rclone remote is defined with non-ASCII (extended) characters then rclonesync will likely fail.  The issue should be resolved by using Python 3.x on Windows, or run from Linux.  The root issue is that the Windows Python 2.7 subprocess module only supports ASCII characters.  rclonesync supports extended characters in directory and filenames, but not for the remote name.  Valentin Lab posted a fix for the Python 2.7 Windows subprocess.py module as win_subprocess.py (https://gist.github.com/vaab/2ad7051fc193167f15f85ef573e54eb9), which has been added to the rclonesync project, with no edits other than noting the source.  When rclonesync.py is run from Windows on Python 2.7, a dummy file `deleteme.txt` is created in the rclonesync working directory (due to a constraint/bug in win_subprocess.py).  This file may be ignored or deleted (it will come back).
+- As of version 2.9, extended characters (Unicode code points, UTF-8) are now supported in all path fields in the rclonesync command line.  However,Python 2.7 on Windows does not natively support extended characters on the command line.  The `win32_unicode_argv.py` module has been added to this project to address this Win-Ph2.7-specific gap.  See [this post](https://stackoverflow.com/questions/846850/read-unicode-characters-from-command-line-arguments-in-python-2-x-on-windows/846931#846931).  Additionally, the subprocess calls within rclonesync.py must support extended characters, and the Python 2.7 on Windows subprocess module does not natively support extended characters.  Valentin Lab posted a fix for the Python 2.7 Windows subprocess.py module as `win_subprocess.py` (https://gist.github.com/vaab/2ad7051fc193167f15f85ef573e54eb9), which has also been added to the rclonesync project, with no edits other than noting the source.  When rclonesync.py is run from Windows on Python 2.7, a dummy file `deleteme.txt` is created in the rclonesync working directory (due to a constraint/bug in win_subprocess.py).  This file may be ignored or deleted (it will come back).  These modules are only needed for Python 2.7 on Windows.    Note that it appears that rclone itself only allows ASCII characters in the names of remotes.
+ 
 
 ### Usual sync checks
 
@@ -287,6 +308,8 @@ Path1 size | File size is different (same timestamp) | Not sure if `rclone sync`
 
 ## Revision history
 
+- V2.9 191103 Support Unicode in command line args.  Support Python 3 on Windows.
+- V2.8 191003 Fixed Windows platform detect bug (#27), utilized Python's tempfile directory feature (#28), and made non-verbose logging completely quiet (#31).
 - V2.7 190429 Added paths-specific lock filename and exit codes.  Corrected listremotes subprocess call (thanks @JasperJuergensen).
 - V2.6 190408 Added --config and --rclone-args switches.
 - V2.5 190330 Fixed Windows with Python 2.7 extended characters (UTF-8) support.  

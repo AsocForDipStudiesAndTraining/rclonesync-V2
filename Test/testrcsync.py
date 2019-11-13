@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
+from __future__ import unicode_literals  # This sets py2.7 default string literal to unicode from str.  No 'u' required on strings.
+from __future__ import print_function    # This redefined print as a function, as in py3.  Forces writing compatible code.
 """Test engine for rclonesync test cases
 Test cases are organized in subdirs beneath ./tests.
 Results are compared against golden LSL files and the rclonesync log file.
@@ -7,9 +10,14 @@ Example for running all tests with output directed to a log file:
     ./testrcsync.py local GDrive: ALL > runlog.txt 2>&1
 """
 
-version = "V1.4 190408"
+
+
+version = "V1.6 191103"
 
 # Revision history
+# V1.6 191103  Unicode enhancements, including on the rclonesync command line
+# V1.5 191003  Force sorted order of ALL testcases.  Force sorted order of 
+#   results compare.  Deleted --config switch for Windows testing.  Fixed cleanup bug.
 # V1.4 190408  Added --config switch and support for --rclone-args switches in ChangeCmds and SyncCmds rclonesync calls.
 # V1.3 190330  Added hook for running tests with Windows.  See README.md.
 # V1.2 181001  Add support for path to rclone
@@ -22,6 +30,7 @@ version = "V1.4 190408"
 
 import argparse
 import sys
+import io
 import re
 import os.path
 import os
@@ -43,22 +52,31 @@ def rcstest():
 
     TESTCASEROOT = "./tests/" + testcase + "/"
     INITIALDIR   = TESTCASEROOT + "initial/"
-    MODFILESDIR  = TESTCASEROOT + "modfiles/"
+    # MODFILESDIR  = TESTCASEROOT + "modfiles/"
     GOLDENDIR    = TESTCASEROOT + "golden/"
     CHANGECMDS   = TESTCASEROOT + "/ChangeCmds.txt"         # File of commands for changes from initial setup state for a test
     SYNCCMD      = TESTCASEROOT + "/SyncCmds.txt"           # File of rclonesync (and other) commands
 
     print ("CLEAN UP any remnant test content and SET UP the INITIAL STATE on both Path1 and Path2")
+    # subprocess.call([rclone, "purge", path1, "--config", rcconfig])
+    # subprocess.call([rclone, "purge", path2, "--config", rcconfig])
     if os.path.exists(WORKDIR):
         shutil.rmtree(WORKDIR)
     os.mkdir(WORKDIR)
 
-    testdirpath1 = TESTDIR + "path1/"
-    try:
-        subprocess.Popen([rclone, "purge", path1, "--config", rcconfig ], stdout=devnull, stderr=devnull)
-    except:
-        pass
-    
+    # testdirpath1 = TESTDIR + "path1/"
+    # try:
+    #     subprocess.Popen([rclone, "purge", path1, "--config", rcconfig ], stdout=devnull, stderr=devnull)
+    # except:
+    #     pass
+    FNULL = open(os.devnull, 'w')
+    # subprocess.call(['echo', 'foo'], stdout=FNULL, stderr=subprocess.STDOUT)
+    subprocess.call([rclone, "purge", path1, "--config", rcconfig ], stdout=FNULL, stderr=FNULL)
+    subprocess.call([rclone, "purge", path2, "--config", rcconfig ], stdout=FNULL, stderr=FNULL)
+
+    # raw_input ("Hello")
+
+
     # git tends to change file mod dates.  For test stability, jam initial dates to a fix past date.
     # test cases that changes files (test_changes, for example) will touch specific files to fixed new dates.
     subprocess.call("find " + INITIALDIR + r' -type f -exec touch --date="2000-01-01" {} +', shell=True)
@@ -66,15 +84,19 @@ def rcstest():
     subprocess.call([rclone, "copy", INITIALDIR, path1, "--config", rcconfig])
     subprocess.call([rclone, "sync", path1, path2, "--config", rcconfig])
     sys.stdout.flush()                                      # Force alignment of stdout and stderr in redirected output file.
-    
+    # raw_input ("hello")
     print ("\nDO <rclonesync --first-sync> to set LSL files baseline")
     subprocess.call([rcsexec, path1, path2, "--first-sync", "--workdir", WORKDIR,
                      "--no-datetime-log", "--rclone", rclone, "--config", rcconfig])
     sys.stdout.flush()
+    # raw_input ("hello")
+    
     
 
     print ("RUN CHANGECMDS to apply changes from test case initial state")
-    with open(CHANGECMDS) as ifile:
+        # with io.open(file, mode='rt', encoding='utf8',errors="replace") as inf:   # use io.open for unicode support (??)
+
+    with io.open(CHANGECMDS, mode='rt', encoding='utf8', errors="replace") as ifile:
         for line in ifile:
             line = line[0:line.find('#')].lstrip().rstrip() # Throw away comment and any leading & trailing whitespace.
             if len(line) > 0:
@@ -95,6 +117,7 @@ def rcstest():
                     #     # if args.config is not None:
                     #     #     line += "--config" + args.config
                     xx = line \
+                         .replace(":/", ":") \
                          .replace(":TESTCASEROOT:", TESTCASEROOT) \
                          .replace(":PATH1:", path1) \
                          .replace(":PATH2:", path2) \
@@ -107,10 +130,12 @@ def rcstest():
 
 
     print ("\nRUN SYNCCMDS (console output captured to consolelog.txt)")
-    with open(CONSOLELOGFILE, "w") as logfile:
-        with open(SYNCCMD) as ifile:
+    with io.open(CONSOLELOGFILE, mode="wt", encoding="utf8") as logfile:
+        with io.open(SYNCCMD, mode="rt", encoding='utf8', errors="replace") as ifile:
             for line in ifile:
                 line = line[0:line.find('#')].lstrip().rstrip()
+                sys.stdout.flush()
+                sys.stderr.flush()
                 if len(line) > 0:
                     if ":MSG:" in line:
                         print ("    {}".format(line))
@@ -126,6 +151,7 @@ def rcstest():
                                 rcargs = _line[rclone_args_index:]
                             line = " ".join (beginning + [" --verbose --workdir :WORKDIR: --no-datetime-log --rclone :RCLONE: --config", rcconfig] + rcargs)
                         xx = line \
+                            .replace(":/", ":") \
                             .replace(":TESTCASEROOT:", TESTCASEROOT) \
                             .replace(":PATH1:", path1) \
                             .replace(":PATH2:", path2) \
@@ -133,18 +159,32 @@ def rcstest():
                             .replace(":RCLONE:", rclone) \
                             .replace(":WORKDIR:", WORKDIR)
                         subprocess.call("echo " + xx, stdout=logfile, stderr=logfile, shell=True)
-                        # sys.stdout.flush()
-                        if args.Windows_testing:
-                            print ("    {} >> {} 2>&1".format(xx.replace('/','\\'), CONSOLELOGFILE.replace('/','\\')))
+                        sys.stdout.flush()
+                        sys.stderr.flush()
+                        if args.Windows_testing and ":RCSEXEC:" in line:
+                            xx = xx.replace("--config","").replace(rcconfig,"").replace('/','\\')     # Must use Windows-side user default config file
+                            print ("    {}".format(xx))
+                            # os.remove("wincmd.bat")
+                            with io.open("wincmd.bat", mode='wt', encoding='utf-8') as wincmd_bat:
+                                # print ("    {} >> {} 2>&1".format(xx.replace('/','\\'), CONSOLELOGFILE.replace('/','\\')))
+                                # wincmd_bat.write("    {} >> {} 2>&1".format(xx, CONSOLELOGFILE.replace('/','\\')))
+                                wincmd_bat.write("    {} >> {} 2>&1 & del wincmd.bat".format(xx, CONSOLELOGFILE.replace('/','\\')))
+                                wincmd_bat.flush()
+                                os.fsync(wincmd_bat.fileno())
+                            # subprocess.call("cat wincmd.bat", shell=True)
                             if sys.version_info[0] < 3:
-                                raw_input("Hit return after entering above on Windows side. >>")
+                                # raw_input("Hit return after entering above on Windows side. >>")
+                                raw_input("Hit return after running <wincmd.bat> on Windows side. >>")
                             else:
-                                input("Hit return after entering above on Windows side. >>")
+                                # input("Hit return after entering above on Windows side. >>")
+                                input("Hit return after running <wincmd.bat> on Windows side. >>")
                         else:
                             print ("    {}".format(xx))
                             subprocess.call(xx, stdout=logfile, stderr=logfile, shell=True)
                     sys.stdout.flush()
 
+    if os.path.exists(WORKDIR + "deleteme.txt"):    # Remnant from Windows and Python2.7
+        os.remove (WORKDIR + "deleteme.txt")        # Delete it so that it doesn't mess up the file compare.
 
     errcnt = 0
     if args.golden:
@@ -154,15 +194,23 @@ def rcstest():
         shutil.copytree(WORKDIR, GOLDENDIR)
     else:
         print ("\nCOMPARE RESULTS files to the testcase golden directory")
-        goldenfiles =  os.listdir(GOLDENDIR)
-        resultsfiles = os.listdir(WORKDIR)
+
+        def files_list(dirlist):
+            xxx = ""
+            for file in dirlist:
+                xxx += file + ', '
+                # xxx += file.decode('utf-8') + ', '
+            return xxx[:-2]
+
+        goldenfiles =  sorted(os.listdir(GOLDENDIR))
+        resultsfiles = sorted(os.listdir(WORKDIR))
         sys.stdout.flush()
 
         print ("----------------------------------------------------------")
         if len(goldenfiles) != len(resultsfiles):
             print ("MISCOMPARE - Number of Golden and Results files do notmatch:")
-            print ("  Golden  count {}: {}".format(len(goldenfiles),  goldenfiles))
-            print ("  Results count {}: {}".format(len(resultsfiles), resultsfiles))
+            print ("  Golden  count {}: {}".format(len(goldenfiles),  files_list(goldenfiles)))
+            print ("  Results count {}: {}".format(len(resultsfiles), files_list(resultsfiles)))
         else:
             print ("Number of results files ({}) match".format(len(goldenfiles)))
         for xx in goldenfiles:
@@ -176,11 +224,11 @@ def rcstest():
 
         if args.Windows_testing:
             # hack the test result consolelog.txt, swapping to Linux-style slashes
-            with open(CONSOLELOGFILE) as f:
+            with io.open(CONSOLELOGFILE, encoding='utf-8') as f:
                 s = f.read()
             s = s.replace("\\\\", "/")
             s = s.replace("\\", "/")
-            with open(CONSOLELOGFILE, "w") as f:
+            with io.open(CONSOLELOGFILE, "w", encoding='utf-8') as f:
                 f.write(s)
 
         for xx in goldenfiles:
@@ -264,14 +312,13 @@ if __name__ == '__main__':
         print("ERROR  rclone config file <{}> not found.".format(rcconfig)); exit()
     
     try:
-        clouds = subprocess.check_output([rclone, "listremotes", "--config", rcconfig])
+        clouds = subprocess.check_output([rclone, "listremotes", "--config", rcconfig]).decode("utf8").split()
     except subprocess.CalledProcessError as e:
         print ("ERROR  Can't get list of known remotes.  Have you run rclone config?"); exit()
     except:
         print ("ERROR  rclone not installed, or invalid --rclone path?\nError message: {}\n".format(sys.exc_info()[1])); exit()
-    clouds = str(clouds.decode("utf8")).split()
 
-    remoteFormat = re.compile('([\w-]+):(.*)')
+    remoteFormat = re.compile(r'([\w-]+):(.*)')
     if args.Path1 == "local":
         path1base = LOCALTESTBASE
     else:
@@ -301,7 +348,7 @@ if __name__ == '__main__':
         else:
             print ("ERROR  TestCase directory <{}> not found".format(testcase)); exit()
     else:
-        for directory in os.listdir("./tests"):
+        for directory in sorted(os.listdir("./tests")):
             print ("===================================================================")
             testcase = directory
             rcstest()
